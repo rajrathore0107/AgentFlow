@@ -1,13 +1,63 @@
-/**
- * Agent Runner — Executes individual agents based on their role.
- * Phase 1: Uses mock responses. Phase 2: Will use Gemini API.
- */
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import config from '../config.js';
+
+// Initialize Gemini API
+const genAI = new GoogleGenerativeAI(config.geminiApiKey || 'mock-key-for-dev');
+
+const AGENT_PROMPTS = {
+  researcher: {
+    description: 'Searches for and gathers information on the given topic',
+    systemInstruction: `You are an expert Research Agent. Your job is to gather comprehensive, accurate, and up-to-date information on the provided topic. 
+Structure your findings clearly with:
+1. Key Data Points & Statistics
+2. Industry Trends
+3. Major Players / Competitors
+4. Summary of Sources
+
+Do not write a full report, just compile the research data.`,
+  },
+
+  analyst: {
+    description: 'Analyzes data and identifies patterns, trends, and insights',
+    systemInstruction: `You are an expert Data Analyst Agent. Your job is to analyze the research data provided to you and identify critical patterns, trends, and strategic insights.
+Structure your analysis with:
+1. Executive Summary
+2. Key Insights & Market Opportunities
+3. Risk Assessment
+4. Strategic Recommendations
+
+Base your analysis strictly on the provided research context.`,
+  },
+
+  writer: {
+    description: 'Writes structured, polished content from analysis and research',
+    systemInstruction: `You are an expert Content Writer Agent. Your job is to take research and analysis data and synthesize it into a highly polished, professional report.
+Your writing should be engaging, clear, and well-structured. Use markdown formatting (headings, bullet points, bold text) to make it highly readable.
+Do not invent new data; use the context provided by upstream agents.`,
+  },
+
+  critic: {
+    description: 'Reviews content for quality, accuracy, and completeness',
+    systemInstruction: `You are an expert Critic and Quality Assurance Agent. Your job is to review the drafted report for quality, logical flow, accuracy, and completeness based on the original request.
+Structure your review with:
+1. Overall Assessment (Approve/Reject with a Score out of 10)
+2. Strengths of the Report
+3. Areas for Improvement (Constructive Feedback)
+4. Fact-Check Summary`,
+  },
+
+  custom: {
+    description: 'A custom agent with user-defined behavior',
+    systemInstruction: `You are a helpful AI assistant acting as a step in a larger workflow pipeline. Process the input and context provided to you according to the implicit needs of the topic. Be concise and structured in your output.`,
+  }
+};
 
 function extractTopic(input) {
   if (typeof input === 'string') return input;
   if (input.userInput?.topic) return input.userInput.topic;
   if (input.userInput?.query) return input.userInput.query;
   if (typeof input.userInput === 'string') return input.userInput;
+  
   if (input.cumulativeContext) {
     const match = input.cumulativeContext.match(/User Input:\s*({.*?})/s);
     if (match) {
@@ -20,30 +70,47 @@ function extractTopic(input) {
   return 'AI Agent Orchestration';
 }
 
-const MOCK = {
-  researcher: (input) => {
-    const t = extractTopic(input);
-    return `## Research Findings: ${t}\n\n### Key Data Points\n1. **Market Size**: Estimated at $XX billion in 2026, CAGR of 15.3%.\n2. **Major Players**: TechCorp, InnovateLabs, DataDriven Inc. hold 45% market share.\n3. **Growth Drivers**: Digital transformation, AI adoption, regulatory changes.\n4. **Regional Analysis**: North America 38%, Asia-Pacific 31%.\n\n### Industry Trends\n- AI-powered automation in enterprise workflows\n- Sustainable and ethical AI solutions\n- Edge computing and decentralized architectures\n- Data privacy and governance frameworks\n\n### Sources: Gartner, McKinsey, Forrester, Bloomberg`;
-  },
-  analyst: (input) => {
-    const t = extractTopic(input);
-    return `## Analysis Report: ${t}\n\n### Executive Summary\nCritical patterns and strategic implications identified.\n\n### Key Insights\n1. **High Growth**: Enterprise AI automation — 40% budget increase\n2. **Underserved**: SMB segment with significant unmet demand\n3. **Moat**: Proprietary data pipelines show 2.3x better resilience\n\n### Risk Matrix\n| Risk | Probability | Impact |\n|------|-----------|--------|\n| Regulatory changes | Medium | High |\n| Market saturation | Low | Medium |\n| Tech disruption | Medium | High |\n\n### Recommendations\n1. Short-term: Product-market fit\n2. Medium-term: Adjacent markets\n3. Long-term: Platform ecosystem\n\nData Confidence: 85%`;
-  },
-  writer: (input) => {
-    const t = extractTopic(input);
-    return `# ${t} — Market Research Report\n\n## 1. Introduction\nComprehensive analysis of ${t} for strategic decision-making.\n\n## 2. Market Overview\nRapid transformation driven by technological innovation. Market poised for significant growth.\n\n## 3. Competitive Landscape\nMix of established players and startups. Top three hold 45% share.\n\n## 4. Strategic Analysis\n**Strengths**: Strong tech foundation, growing demand\n**Opportunities**: Untapped SMB market, cross-industry AI applications\n\n## 5. Recommendations\nPhased market entry prioritizing enterprise customers.\n\n## 6. Conclusion\nCompelling opportunities for innovators. Early movers will capture significant share.\n\n---\n*Report generated by AgentFlow*`;
-  },
-  critic: () => {
-    return `## Quality Review\n\n### Overall: ✅ APPROVED (8.5/10)\n\n### Strengths\n- Well-structured with clear logical flow\n- Relevant, supporting data points\n- Actionable, time-bound recommendations\n\n### Improvements Suggested\n- Update to Q2 2026 data\n- Add inline citations\n- Deeper competitor profiles\n\n### Fact-Check: All key figures verified ✅\n\n**Verdict: Approved for delivery.**`;
-  },
-  custom: (input) => {
-    const t = extractTopic(input);
-    return `## Custom Agent Output\n\nProcessed "${t}" successfully. Results ready for downstream processing.`;
-  },
-};
-
+/**
+ * Run an individual agent using Gemini AI.
+ */
 export async function runAgent(role, input) {
-  const r = role.toLowerCase().trim();
-  const fn = MOCK[r] || MOCK.custom;
-  return fn(input);
+  const normalizedRole = role.toLowerCase().trim();
+  const agentDef = AGENT_PROMPTS[normalizedRole] || AGENT_PROMPTS.custom;
+  
+  if (!config.geminiApiKey) {
+    throw new Error('GEMINI_API_KEY is not configured in the environment variables.');
+  }
+
+  // Determine the model
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-1.5-pro-latest',
+    systemInstruction: agentDef.systemInstruction,
+  });
+
+  const topic = extractTopic(input);
+  
+  // Construct the prompt combining the original user input and the cumulative context from previous agents
+  const prompt = `
+Topic / Original Request: ${topic}
+
+### Context from Previous Agents in the Pipeline ###
+${input.cumulativeContext || 'No previous context. You are the first agent in the pipeline.'}
+
+### Instructions ###
+Based on your role's system instructions, process the above context and topic. Provide your output below.
+  `.trim();
+
+  try {
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text();
+  } catch (error) {
+    console.error(`Error running ${role} agent:`, error);
+    throw new Error(`AI Generation failed for role ${role}: ${error.message}`);
+  }
+}
+
+export function getAgentDescription(role) {
+  const normalizedRole = role.toLowerCase().trim();
+  return AGENT_PROMPTS[normalizedRole]?.description || 'Custom agent';
 }
