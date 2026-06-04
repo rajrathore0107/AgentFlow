@@ -1,0 +1,9 @@
+node_modules/
+.env
+agentflow.db
+agentflow.db-journal
+agentflow.db-wal
+agentflow.db-shm
+.DS_Store
+dist/
+build/
