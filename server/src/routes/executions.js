@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import Execution from '../models/Execution.js';
 import Pipeline from '../models/Pipeline.js';
-import { executeWorkflow } from '../services/engine.js';
+import { executeWorkflow, approvalPromises } from '../services/engine.js';
 
 const router = Router();
 router.use(authenticate);
@@ -68,6 +68,30 @@ router.post('/', async (req, res) => {
   } catch (error) {
     console.error('Error starting execution:', error);
     res.status(500).json({ error: 'Failed to start execution' });
+  }
+});
+
+// POST /api/executions/:id/approve
+router.post('/:id/approve', (req, res) => {
+  const promise = approvalPromises.get(req.params.id);
+  if (promise) {
+    promise.resolve();
+    approvalPromises.delete(req.params.id);
+    res.json({ success: true, message: 'Execution approved' });
+  } else {
+    res.status(400).json({ error: 'Execution is not awaiting approval' });
+  }
+});
+
+// POST /api/executions/:id/reject
+router.post('/:id/reject', (req, res) => {
+  const promise = approvalPromises.get(req.params.id);
+  if (promise) {
+    promise.reject(new Error('Rejected by human'));
+    approvalPromises.delete(req.params.id);
+    res.json({ success: true, message: 'Execution rejected' });
+  } else {
+    res.status(400).json({ error: 'Execution is not awaiting approval' });
   }
 });
 

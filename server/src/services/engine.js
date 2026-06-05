@@ -18,6 +18,8 @@ import { broadcastToExecution } from '../websocket/handler.js';
  * 4. Handles conditional routing (e.g., Critic sends back to Writer)
  * 5. Broadcasts real-time updates via WebSocket
  */
+export const approvalPromises = new Map();
+
 export async function executeWorkflow(executionId, pipeline, inputData) {
   const workflow = pipeline.workflow_json;
   const { nodes = [], edges = [] } = workflow;
@@ -137,6 +139,45 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
       agent: agentLabel,
       message: `Agent "${agentLabel}" (${agentRole}) started processing...`,
     });
+
+    // Check for Human-in-the-loop approval BEFORE running the agent
+    if (agentConfig.requiresApproval) {
+      Execution.updateStatus(executionId, 'awaiting_approval');
+      Execution.appendLog(executionId, {
+        type: 'info',
+        agent: 'System',
+        message: `Pipeline paused. Awaiting human approval for agent "${agentLabel}".`,
+      });
+      broadcastToExecution(executionId, {
+        type: 'awaiting_approval',
+        agentId: nodeId,
+        agentRole,
+        agentLabel,
+      });
+
+      try {
+        await new Promise((resolve, reject) => {
+          approvalPromises.set(executionId, { resolve, reject });
+        });
+        
+        Execution.updateStatus(executionId, 'running');
+        Execution.appendLog(executionId, {
+          type: 'info',
+          agent: 'System',
+          message: `Approval granted. Resuming execution...`,
+        });
+        broadcastToExecution(executionId, { type: 'approval_granted' });
+      } catch (err) {
+        Execution.appendLog(executionId, {
+          type: 'error',
+          agent: 'System',
+          message: `Execution rejected by human.`,
+        });
+        Execution.updateStatus(executionId, 'failed');
+        broadcastToExecution(executionId, { type: 'execution_failed', message: 'Rejected by human' });
+        return;
+      }
+    }
 
     try {
       // Simulate thinking delay for realism

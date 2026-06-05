@@ -32,6 +32,26 @@ export default function ExecutionView() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
+  const handleApprove = async () => {
+    try { await executionAPI.approve(id); setStatus('running'); } catch (err) { console.error(err); }
+  };
+
+  const handleReject = async () => {
+    try { await executionAPI.reject(id); setStatus('failed'); } catch (err) { console.error(err); }
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([output], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${execution?.pipeline_name?.replace(/\\s+/g, '_') || 'Report'}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const loadExecution = async () => {
     try {
       const res = await executionAPI.get(id);
@@ -95,6 +115,16 @@ export default function ExecutionView() {
           setLogs(prev => [...prev, { type: 'agent_error', agent: msg.agentRole, message: `Agent failed: ${msg.error}`, timestamp: new Date().toISOString() }]);
         }
 
+        if (msg.type === 'awaiting_approval') {
+          setStatus('awaiting_approval');
+          setLogs(prev => [...prev, { type: 'info', agent: 'System', message: `Pipeline paused. Awaiting human approval for agent "${msg.agentLabel}".`, timestamp: new Date().toISOString() }]);
+        }
+
+        if (msg.type === 'approval_granted') {
+          setStatus('running');
+          setLogs(prev => [...prev, { type: 'info', agent: 'System', message: 'Approval granted. Resuming execution...', timestamp: new Date().toISOString() }]);
+        }
+
         if (msg.type === 'execution_completed') {
           setStatus('completed');
           setOutput(msg.output);
@@ -122,9 +152,20 @@ export default function ExecutionView() {
         <div style={{display:'flex',alignItems:'center',gap:12}}>
           <button className="btn btn-secondary btn-sm" onClick={() => navigate('/executions')}>← Back</button>
           <h2 style={{fontSize:16,fontWeight:600}}>Run: {execution.pipeline_name}</h2>
-          <span className={`badge badge-${status === 'completed' ? 'success' : status === 'failed' ? 'error' : status === 'running' ? 'info' : 'default'}`}>
+          <span className={`badge badge-${status === 'completed' ? 'success' : status === 'failed' ? 'error' : status === 'awaiting_approval' ? 'warning' : status === 'running' ? 'info' : 'default'}`}>
             {status.toUpperCase()}
           </span>
+          {status === 'awaiting_approval' && (
+            <div style={{ marginLeft: 16, display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary btn-sm" onClick={handleApprove}>👍 Approve</button>
+              <button className="btn btn-danger btn-sm" onClick={handleReject}>👎 Reject</button>
+            </div>
+          )}
+          {status === 'completed' && output && (
+            <div style={{ marginLeft: 16 }}>
+              <button className="btn btn-secondary btn-sm" onClick={handleDownload}>📥 Download Markdown</button>
+            </div>
+          )}
         </div>
       </div>
 

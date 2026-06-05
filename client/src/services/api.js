@@ -48,6 +48,8 @@ export const executionAPI = {
   list: () => api.get('/executions'),
   get: (id) => api.get(`/executions/${id}`),
   start: (data) => api.post('/executions', data),
+  approve: (id) => api.post(`/executions/${id}/approve`),
+  reject: (id) => api.post(`/executions/${id}/reject`),
 };
 
 export default api;
