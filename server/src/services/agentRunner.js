@@ -83,7 +83,7 @@ export async function runAgent(role, input) {
 
   // Determine the model
   const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-pro-latest',
+    model: 'gemini-1.5-pro',
     systemInstruction: agentDef.systemInstruction,
   });
 
