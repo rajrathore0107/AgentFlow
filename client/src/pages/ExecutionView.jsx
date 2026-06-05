@@ -20,7 +20,9 @@ export default function ExecutionView() {
     connectWebSocket();
     return () => {
       if (wsRef.current) {
-        wsRef.current.send(JSON.stringify({ type: 'unsubscribe_execution' }));
+        if (wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'unsubscribe_execution' }));
+        }
         wsRef.current.close();
       }
     };
@@ -137,7 +139,9 @@ export default function ExecutionView() {
 
           {steps.length > 0 ? (
             <div className="execution-steps fade-in">
-              {steps.map((step, idx) => (
+              {steps.map((step, idx) => {
+                if (!step) return null;
+                return (
                 <div key={idx} className={`step-card ${step.status === 'running' ? 'active' : step.status}`}>
                   <div className="step-header">
                     <div className={`step-status ${step.status}`}>
@@ -154,7 +158,8 @@ export default function ExecutionView() {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="empty-state">
