@@ -8,9 +8,9 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/pipelines
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const pipelines = Pipeline.findByUserId(req.userId);
+    const pipelines = await Pipeline.findByUserId(req.userId);
     res.json({ pipelines });
   } catch (error) {
     console.error('Error fetching pipelines:', error);
@@ -19,9 +19,9 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/pipelines/:id
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const pipeline = Pipeline.findById(req.params.id);
+    const pipeline = await Pipeline.findById(req.params.id);
     if (!pipeline) {
       return res.status(404).json({ error: 'Pipeline not found' });
     }
@@ -36,7 +36,7 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/pipelines
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { name, description, workflowJson } = req.body;
     
@@ -44,7 +44,7 @@ router.post('/', (req, res) => {
       return res.status(400).json({ error: 'Pipeline name is required' });
     }
 
-    const pipeline = Pipeline.create({
+    const pipeline = await Pipeline.create({
       userId: req.userId,
       name,
       description,
@@ -59,9 +59,9 @@ router.post('/', (req, res) => {
 });
 
 // PUT /api/pipelines/:id
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
-    const existing = Pipeline.findById(req.params.id);
+    const existing = await Pipeline.findById(req.params.id);
     if (!existing) {
       return res.status(404).json({ error: 'Pipeline not found' });
     }
@@ -70,7 +70,7 @@ router.put('/:id', (req, res) => {
     }
 
     const { name, description, workflowJson, status } = req.body;
-    const pipeline = Pipeline.update(req.params.id, {
+    const pipeline = await Pipeline.update(req.params.id, {
       name,
       description,
       workflowJson,
@@ -85,9 +85,9 @@ router.put('/:id', (req, res) => {
 });
 
 // DELETE /api/pipelines/:id
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const existing = Pipeline.findById(req.params.id);
+    const existing = await Pipeline.findById(req.params.id);
     if (!existing) {
       return res.status(404).json({ error: 'Pipeline not found' });
     }
@@ -95,7 +95,7 @@ router.delete('/:id', (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    Pipeline.delete(req.params.id);
+    await Pipeline.delete(req.params.id);
     res.json({ message: 'Pipeline deleted successfully' });
   } catch (error) {
     console.error('Error deleting pipeline:', error);

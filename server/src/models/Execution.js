@@ -2,51 +2,50 @@ import db from '../db/setup.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export default class Execution {
-  static create({ pipelineId, userId, inputData = {} }) {
+  static async create({ pipelineId, userId, inputData = {} }) {
     const id = uuidv4();
     
-    const stmt = db.prepare(`
+    await db.query(`
       INSERT INTO executions (id, pipeline_id, user_id, status, input_data, started_at)
       VALUES (?, ?, ?, 'running', ?, CURRENT_TIMESTAMP)
-    `);
+    `, [id, pipelineId, userId, JSON.stringify(inputData)]);
     
-    stmt.run(id, pipelineId, userId, JSON.stringify(inputData));
     return this.findById(id);
   }
 
-  static findById(id) {
-    const stmt = db.prepare(`
+  static async findById(id) {
+    const row = await db.queryOne(`
       SELECT e.*, p.name as pipeline_name 
       FROM executions e 
       JOIN pipelines p ON e.pipeline_id = p.id 
       WHERE e.id = ?
-    `);
-    const row = stmt.get(id);
+    `, [id]);
+    
     if (row) {
-      row.input_data = JSON.parse(row.input_data);
-      row.logs = JSON.parse(row.logs);
+      row.input_data = typeof row.input_data === 'string' ? JSON.parse(row.input_data) : row.input_data;
+      row.logs = typeof row.logs === 'string' ? JSON.parse(row.logs) : (row.logs || []);
     }
     return row;
   }
 
-  static findByUserId(userId, limit = 20) {
-    const stmt = db.prepare(`
+  static async findByUserId(userId, limit = 20) {
+    const rows = await db.query(`
       SELECT e.*, p.name as pipeline_name 
       FROM executions e 
       JOIN pipelines p ON e.pipeline_id = p.id 
       WHERE e.user_id = ? 
       ORDER BY e.created_at DESC 
       LIMIT ?
-    `);
-    const rows = stmt.all(userId, limit);
+    `, [userId, limit]);
+    
     return rows.map(row => ({
       ...row,
-      input_data: JSON.parse(row.input_data),
-      logs: JSON.parse(row.logs),
+      input_data: typeof row.input_data === 'string' ? JSON.parse(row.input_data) : row.input_data,
+      logs: typeof row.logs === 'string' ? JSON.parse(row.logs) : (row.logs || []),
     }));
   }
 
-  static updateStatus(id, status) {
+  static async updateStatus(id, status) {
     const updates = ['status = ?'];
     const values = [status];
     
@@ -55,26 +54,25 @@ export default class Execution {
     }
     
     values.push(id);
-    const stmt = db.prepare(`UPDATE executions SET ${updates.join(', ')} WHERE id = ?`);
-    stmt.run(...values);
+    const sql = `UPDATE executions SET ${updates.join(', ')} WHERE id = ?`;
+    await db.query(sql, values);
     return this.findById(id);
   }
 
-  static appendLog(id, logEntry) {
-    const execution = this.findById(id);
+  static async appendLog(id, logEntry) {
+    const execution = await this.findById(id);
     if (!execution) return null;
     
     const logs = execution.logs || [];
     logs.push({ ...logEntry, timestamp: new Date().toISOString() });
     
-    const stmt = db.prepare('UPDATE executions SET logs = ? WHERE id = ?');
-    stmt.run(JSON.stringify(logs), id);
+    await db.query('UPDATE executions SET logs = ? WHERE id = ?', [JSON.stringify(logs), id]);
     return this.findById(id);
   }
 
-  static setOutput(id, outputData) {
-    const stmt = db.prepare('UPDATE executions SET output_data = ? WHERE id = ?');
-    stmt.run(typeof outputData === 'string' ? outputData : JSON.stringify(outputData), id);
+  static async setOutput(id, outputData) {
+    const data = typeof outputData === 'string' ? outputData : JSON.stringify(outputData);
+    await db.query('UPDATE executions SET output_data = ? WHERE id = ?', [data, id]);
     return this.findById(id);
   }
 }

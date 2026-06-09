@@ -3,32 +3,28 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
 export default class User {
-  static create({ email, username, password }) {
+  static async create({ email, username, password }) {
     const id = uuidv4();
     const passwordHash = bcrypt.hashSync(password, 12);
     
-    const stmt = db.prepare(`
+    await db.query(`
       INSERT INTO users (id, email, username, password_hash)
       VALUES (?, ?, ?, ?)
-    `);
+    `, [id, email.toLowerCase(), username, passwordHash]);
     
-    stmt.run(id, email.toLowerCase(), username, passwordHash);
     return this.findById(id);
   }
 
-  static findById(id) {
-    const stmt = db.prepare('SELECT id, email, username, created_at FROM users WHERE id = ?');
-    return stmt.get(id);
+  static async findById(id) {
+    return db.queryOne('SELECT id, email, username, created_at FROM users WHERE id = ?', [id]);
   }
 
-  static findByEmail(email) {
-    const stmt = db.prepare('SELECT * FROM users WHERE email = ?');
-    return stmt.get(email.toLowerCase());
+  static async findByEmail(email) {
+    return db.queryOne('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
   }
 
-  static findByUsername(username) {
-    const stmt = db.prepare('SELECT * FROM users WHERE username = ?');
-    return stmt.get(username);
+  static async findByUsername(username) {
+    return db.queryOne('SELECT * FROM users WHERE username = ?', [username]);
   }
 
   static verifyPassword(plainPassword, hashedPassword) {

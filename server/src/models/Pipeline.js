@@ -2,37 +2,34 @@ import db from '../db/setup.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export default class Pipeline {
-  static create({ userId, name, description = '', workflowJson = {} }) {
+  static async create({ userId, name, description = '', workflowJson = {} }) {
     const id = uuidv4();
     
-    const stmt = db.prepare(`
+    await db.query(`
       INSERT INTO pipelines (id, user_id, name, description, workflow_json)
       VALUES (?, ?, ?, ?, ?)
-    `);
+    `, [id, userId, name, description, JSON.stringify(workflowJson)]);
     
-    stmt.run(id, userId, name, description, JSON.stringify(workflowJson));
     return this.findById(id);
   }
 
-  static findById(id) {
-    const stmt = db.prepare('SELECT * FROM pipelines WHERE id = ?');
-    const row = stmt.get(id);
+  static async findById(id) {
+    const row = await db.queryOne('SELECT * FROM pipelines WHERE id = ?', [id]);
     if (row) {
-      row.workflow_json = JSON.parse(row.workflow_json);
+      row.workflow_json = typeof row.workflow_json === 'string' ? JSON.parse(row.workflow_json) : row.workflow_json;
     }
     return row;
   }
 
-  static findByUserId(userId) {
-    const stmt = db.prepare('SELECT * FROM pipelines WHERE user_id = ? ORDER BY updated_at DESC');
-    const rows = stmt.all(userId);
+  static async findByUserId(userId) {
+    const rows = await db.query('SELECT * FROM pipelines WHERE user_id = ? ORDER BY updated_at DESC', [userId]);
     return rows.map(row => ({
       ...row,
-      workflow_json: JSON.parse(row.workflow_json),
+      workflow_json: typeof row.workflow_json === 'string' ? JSON.parse(row.workflow_json) : row.workflow_json,
     }));
   }
 
-  static update(id, { name, description, workflowJson, status }) {
+  static async update(id, { name, description, workflowJson, status }) {
     const updates = [];
     const values = [];
 
@@ -46,18 +43,17 @@ export default class Pipeline {
     if (updates.length === 1) return this.findById(id); // only updated_at
 
     values.push(id);
-    const stmt = db.prepare(`UPDATE pipelines SET ${updates.join(', ')} WHERE id = ?`);
-    stmt.run(...values);
+    const sql = `UPDATE pipelines SET ${updates.join(', ')} WHERE id = ?`;
+    await db.query(sql, values);
     return this.findById(id);
   }
 
-  static delete(id) {
-    const stmt = db.prepare('DELETE FROM pipelines WHERE id = ?');
-    return stmt.run(id);
+  static async delete(id) {
+    return db.query('DELETE FROM pipelines WHERE id = ?', [id]);
   }
 
-  static countByUserId(userId) {
-    const stmt = db.prepare('SELECT COUNT(*) as count FROM pipelines WHERE user_id = ?');
-    return stmt.get(userId).count;
+  static async countByUserId(userId) {
+    const row = await db.queryOne('SELECT COUNT(*) as count FROM pipelines WHERE user_id = ?', [userId]);
+    return parseInt(row.count || 0, 10);
   }
 }

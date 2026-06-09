@@ -8,9 +8,9 @@ const router = Router();
 router.use(authenticate);
 
 // GET /api/executions - list user's executions
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const executions = Execution.findByUserId(req.userId);
+    const executions = await Execution.findByUserId(req.userId);
     res.json({ executions });
   } catch (error) {
     console.error('Error fetching executions:', error);
@@ -19,9 +19,9 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/executions/:id
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const execution = Execution.findById(req.params.id);
+    const execution = await Execution.findById(req.params.id);
     if (!execution) {
       return res.status(404).json({ error: 'Execution not found' });
     }
@@ -44,7 +44,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Pipeline ID is required' });
     }
 
-    const pipeline = Pipeline.findById(pipelineId);
+    const pipeline = await Pipeline.findById(pipelineId);
     if (!pipeline) {
       return res.status(404).json({ error: 'Pipeline not found' });
     }
@@ -52,16 +52,16 @@ router.post('/', async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const execution = Execution.create({
+    const execution = await Execution.create({
       pipelineId,
       userId: req.userId,
       inputData: inputData || {},
     });
 
     // Start execution asynchronously
-    executeWorkflow(execution.id, pipeline, inputData || {}).catch(err => {
+    executeWorkflow(execution.id, pipeline, inputData || {}).catch(async err => {
       console.error('Workflow execution error:', err);
-      Execution.updateStatus(execution.id, 'failed');
+      await Execution.updateStatus(execution.id, 'failed');
     });
 
     res.status(201).json({ execution });

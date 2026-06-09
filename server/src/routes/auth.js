@@ -1,13 +1,11 @@
 import { Router } from 'express';
-import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import { generateToken, authenticate } from '../middleware/auth.js';
-import config from '../config.js';
 
 const router = Router();
 
 // POST /api/auth/register
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
   try {
     const { email, username, password } = req.body;
 
@@ -21,17 +19,17 @@ router.post('/register', (req, res) => {
       return res.status(400).json({ error: 'Username must be at least 3 characters' });
     }
 
-    const existingEmail = User.findByEmail(email);
+    const existingEmail = await User.findByEmail(email);
     if (existingEmail) {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
-    const existingUsername = User.findByUsername(username);
+    const existingUsername = await User.findByUsername(username);
     if (existingUsername) {
       return res.status(409).json({ error: 'Username already taken' });
     }
 
-    const user = User.create({ email, username, password });
+    const user = await User.create({ email, username, password });
     const token = generateToken(user);
 
     res.status(201).json({
@@ -46,7 +44,7 @@ router.post('/register', (req, res) => {
 });
 
 // POST /api/auth/login
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -54,7 +52,7 @@ router.post('/login', (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const user = User.findByEmail(email);
+    const user = await User.findByEmail(email);
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -78,9 +76,9 @@ router.post('/login', (req, res) => {
 });
 
 // GET /api/auth/me
-router.get('/me', authenticate, (req, res) => {
+router.get('/me', authenticate, async (req, res) => {
   try {
-    const user = User.findById(req.userId);
+    const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json({ user });
   } catch {

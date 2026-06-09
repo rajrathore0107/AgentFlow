@@ -4,19 +4,6 @@ import { broadcastToExecution } from '../websocket/handler.js';
 
 /**
  * Execute a workflow pipeline.
- * 
- * Workflow JSON structure:
- * {
- *   nodes: [{ id, type, data: { label, role, config } }],
- *   edges: [{ source, target }]
- * }
- * 
- * The engine:
- * 1. Parses the workflow graph
- * 2. Determines execution order (topological sort)
- * 3. Runs agents sequentially, passing context between them
- * 4. Handles conditional routing (e.g., Critic sends back to Writer)
- * 5. Broadcasts real-time updates via WebSocket
  */
 export const approvalPromises = new Map();
 
@@ -25,12 +12,12 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
   const { nodes = [], edges = [] } = workflow;
 
   if (nodes.length === 0) {
-    Execution.appendLog(executionId, {
+    await Execution.appendLog(executionId, {
       type: 'error',
       agent: 'System',
       message: 'No agents found in pipeline. Add at least one agent node.',
     });
-    Execution.updateStatus(executionId, 'failed');
+    await Execution.updateStatus(executionId, 'failed');
     broadcastToExecution(executionId, { type: 'execution_failed', message: 'No agents in pipeline' });
     return;
   }
@@ -75,12 +62,12 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
 
   // Check for cycles
   if (executionOrder.length !== nodes.length) {
-    Execution.appendLog(executionId, {
+    await Execution.appendLog(executionId, {
       type: 'error',
       agent: 'System',
       message: 'Circular dependency detected in pipeline. Please check your connections.',
     });
-    Execution.updateStatus(executionId, 'failed');
+    await Execution.updateStatus(executionId, 'failed');
     broadcastToExecution(executionId, { type: 'execution_failed', message: 'Circular dependency detected' });
     return;
   }
@@ -98,7 +85,7 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
     totalSteps: executionOrder.length,
   });
 
-  Execution.appendLog(executionId, {
+  await Execution.appendLog(executionId, {
     type: 'info',
     agent: 'System',
     message: `Starting pipeline "${pipeline.name}" with ${executionOrder.length} agent(s)`,
@@ -134,7 +121,7 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
       agentLabel,
     });
 
-    Execution.appendLog(executionId, {
+    await Execution.appendLog(executionId, {
       type: 'agent_start',
       agent: agentLabel,
       message: `Agent "${agentLabel}" (${agentRole}) started processing...`,
@@ -142,8 +129,8 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
 
     // Check for Human-in-the-loop approval BEFORE running the agent
     if (agentConfig.requiresApproval) {
-      Execution.updateStatus(executionId, 'awaiting_approval');
-      Execution.appendLog(executionId, {
+      await Execution.updateStatus(executionId, 'awaiting_approval');
+      await Execution.appendLog(executionId, {
         type: 'info',
         agent: 'System',
         message: `Pipeline paused. Awaiting human approval for agent "${agentLabel}".`,
@@ -160,20 +147,20 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
           approvalPromises.set(executionId, { resolve, reject });
         });
         
-        Execution.updateStatus(executionId, 'running');
-        Execution.appendLog(executionId, {
+        await Execution.updateStatus(executionId, 'running');
+        await Execution.appendLog(executionId, {
           type: 'info',
           agent: 'System',
           message: `Approval granted. Resuming execution...`,
         });
         broadcastToExecution(executionId, { type: 'approval_granted' });
       } catch (err) {
-        Execution.appendLog(executionId, {
+        await Execution.appendLog(executionId, {
           type: 'error',
           agent: 'System',
           message: `Execution rejected by human.`,
         });
-        Execution.updateStatus(executionId, 'failed');
+        await Execution.updateStatus(executionId, 'failed');
         broadcastToExecution(executionId, { type: 'execution_failed', message: 'Rejected by human' });
         return;
       }
@@ -187,7 +174,7 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
       agentOutputs[nodeId] = output;
       cumulativeContext += `\n--- ${agentLabel} Output ---\n${output}\n`;
 
-      Execution.appendLog(executionId, {
+      await Execution.appendLog(executionId, {
         type: 'agent_complete',
         agent: agentLabel,
         message: `Agent "${agentLabel}" completed successfully.`,
@@ -203,7 +190,7 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
         output,
       });
     } catch (error) {
-      Execution.appendLog(executionId, {
+      await Execution.appendLog(executionId, {
         type: 'agent_error',
         agent: agentLabel,
         message: `Agent "${agentLabel}" failed: ${error.message}`,
@@ -216,7 +203,7 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
         error: error.message,
       });
 
-      Execution.updateStatus(executionId, 'failed');
+      await Execution.updateStatus(executionId, 'failed');
       broadcastToExecution(executionId, { type: 'execution_failed', message: error.message });
       return;
     }
@@ -226,10 +213,10 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
   const lastNodeId = executionOrder[executionOrder.length - 1];
   const finalOutput = agentOutputs[lastNodeId] || 'No output generated.';
 
-  Execution.setOutput(executionId, finalOutput);
-  Execution.updateStatus(executionId, 'completed');
+  await Execution.setOutput(executionId, finalOutput);
+  await Execution.updateStatus(executionId, 'completed');
 
-  Execution.appendLog(executionId, {
+  await Execution.appendLog(executionId, {
     type: 'info',
     agent: 'System',
     message: 'Pipeline execution completed successfully! 🎉',
