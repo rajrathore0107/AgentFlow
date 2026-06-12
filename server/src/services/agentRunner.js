@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import config from '../config.js';
+import { searchWeb } from './tools/tavily.js';
 
 // Initialize Gemini API
 const genAI = new GoogleGenerativeAI(config.geminiApiKey || 'mock-key-for-dev');
@@ -81,10 +82,33 @@ export async function runAgent(role, input) {
     throw new Error('GEMINI_API_KEY is not configured in the environment variables.');
   }
 
+  // Define available tools
+  const tools = [
+    {
+      functionDeclarations: [
+        {
+          name: "search_web",
+          description: "Search the web for real-time information about a topic using the Tavily API. Use this when you need up-to-date facts, current events, or specific data not in your training.",
+          parameters: {
+            type: "OBJECT",
+            properties: {
+              query: {
+                type: "STRING",
+                description: "The search query to look up on the web"
+              }
+            },
+            required: ["query"]
+          }
+        }
+      ]
+    }
+  ];
+
   // Determine the model
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
     systemInstruction: agentDef.systemInstruction,
+    tools: tools,
   });
 
   const topic = extractTopic(input);
@@ -101,9 +125,33 @@ Based on your role's system instructions, process the above context and topic. P
   `.trim();
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text();
+    const chat = model.startChat();
+    let result = await chat.sendMessage(prompt);
+    
+    // Handle potential tool calls (up to 3 iterations)
+    let callCount = 0;
+    while (result.response.functionCalls() && callCount < 3) {
+      const calls = result.response.functionCalls();
+      const call = calls[0]; // Process the first call
+      
+      if (call.name === "search_web") {
+        console.log(`🔍 Agent '${role}' is searching the web for: "${call.args.query}"`);
+        const searchResult = await searchWeb(call.args.query);
+        
+        // Send the tool response back to the model
+        result = await chat.sendMessage([{
+          functionResponse: {
+            name: "search_web",
+            response: { content: searchResult }
+          }
+        }]);
+      } else {
+        break; // Unknown function call
+      }
+      callCount++;
+    }
+
+    return result.response.text();
   } catch (error) {
     console.error(`Error running ${role} agent:`, error);
     throw new Error(`AI Generation failed for role ${role}: ${error.message}`);
