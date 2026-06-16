@@ -82,8 +82,13 @@ export async function runAgent(role, input) {
     throw new Error('GEMINI_API_KEY is not configured in the environment variables.');
   }
 
-  // Define available tools
-  const tools = [
+  // Per-node config overrides
+  const nodeConfig = input.config || {};
+  const systemInstruction = nodeConfig.systemPrompt || agentDef.systemInstruction;
+  const webSearchEnabled = nodeConfig.enableWebSearch !== false; // enabled by default unless explicitly disabled
+
+  // Define available tools (conditionally enabled per-node config)
+  const tools = webSearchEnabled ? [
     {
       functionDeclarations: [
         {
@@ -102,13 +107,13 @@ export async function runAgent(role, input) {
         }
       ]
     }
-  ];
+  ] : [];
 
-  // Determine the model
+  // Determine the model — use per-node system instruction if provided
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
-    systemInstruction: agentDef.systemInstruction,
-    tools: tools,
+    systemInstruction,
+    tools,
   });
 
   const topic = extractTopic(input);
