@@ -23,6 +23,12 @@ export default function AppLayout() {
           <NavLink to="/executions" className={({isActive}) => isActive ? 'active' : ''}>
             <span className="nav-icon">▶️</span> Executions
           </NavLink>
+          <NavLink to="/templates" className={({isActive}) => isActive ? 'active' : ''}>
+            <span className="nav-icon">🧩</span> Templates
+          </NavLink>
+          <NavLink to="/analytics" className={({isActive}) => isActive ? 'active' : ''}>
+            <span className="nav-icon">📈</span> Analytics
+          </NavLink>
         </nav>
 
         <div className="sidebar-user">

@@ -6,6 +6,8 @@ import Dashboard from './pages/Dashboard'
 import PipelineBuilder from './pages/PipelineBuilder'
 import ExecutionView from './pages/ExecutionView'
 import Executions from './pages/Executions'
+import Templates from './pages/Templates'
+import Analytics from './pages/Analytics'
 import AppLayout from './components/AppLayout'
 
 function PrivateRoute({ children }) {
@@ -24,6 +26,8 @@ export default function App() {
         <Route path="pipeline/:id" element={<PipelineBuilder />} />
         <Route path="executions" element={<Executions />} />
         <Route path="execution/:id" element={<ExecutionView />} />
+        <Route path="templates" element={<Templates />} />
+        <Route path="analytics" element={<Analytics />} />
       </Route>
     </Routes>
   );
