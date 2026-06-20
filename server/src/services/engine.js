@@ -1,12 +1,31 @@
+import { StateGraph, Annotation, START, END, MemorySaver } from '@langchain/langgraph';
 import Execution from '../models/Execution.js';
 import { runAgent } from './agentRunner.js';
 import { broadcastToExecution } from '../websocket/handler.js';
 
-/**
- * Execute a workflow pipeline.
- */
 export const approvalPromises = new Map();
 
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const GraphState = Annotation.Root({
+  inputData: Annotation(),
+  cumulativeContext: Annotation({
+    reducer: (curr, next) => next ? curr + '\n' + next : curr,
+    default: () => '',
+  }),
+  agentOutputs: Annotation({
+    reducer: (curr, next) => ({ ...curr, ...next }),
+    default: () => ({}),
+  }),
+  stepCounter: Annotation({
+    reducer: (curr, next) => curr + next,
+    default: () => 0,
+  })
+});
+
+/**
+ * Execute a workflow pipeline using LangGraph.
+ */
 export async function executeWorkflow(executionId, pipeline, inputData) {
   const workflow = pipeline.workflow_json;
   const { nodes = [], edges = [] } = workflow;
@@ -22,212 +41,186 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
     return;
   }
 
-  // Build adjacency list
-  const adjacency = {};
+  // Calculate in-degrees and out-degrees to find start and end nodes
   const inDegree = {};
+  const outDegree = {};
+  nodes.forEach(n => {
+    inDegree[n.id] = 0;
+    outDegree[n.id] = 0;
+  });
   
-  nodes.forEach(node => {
-    adjacency[node.id] = [];
-    inDegree[node.id] = 0;
+  edges.forEach(e => {
+    if (inDegree[e.target] !== undefined) inDegree[e.target]++;
+    if (outDegree[e.source] !== undefined) outDegree[e.source]++;
   });
 
-  edges.forEach(edge => {
-    if (adjacency[edge.source]) {
-      adjacency[edge.source].push(edge.target);
-    }
-    if (inDegree[edge.target] !== undefined) {
-      inDegree[edge.target]++;
-    }
-  });
+  const startNodes = nodes.filter(n => inDegree[n.id] === 0);
+  const endNodes = nodes.filter(n => outDegree[n.id] === 0);
 
-  // Topological sort (Kahn's algorithm)
-  const executionOrder = [];
-  const queue = [];
-
-  Object.keys(inDegree).forEach(nodeId => {
-    if (inDegree[nodeId] === 0) queue.push(nodeId);
-  });
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    executionOrder.push(current);
-    
-    (adjacency[current] || []).forEach(neighbor => {
-      inDegree[neighbor]--;
-      if (inDegree[neighbor] === 0) {
-        queue.push(neighbor);
-      }
-    });
-  }
-
-  // Check for cycles
-  if (executionOrder.length !== nodes.length) {
+  if (startNodes.length === 0) {
     await Execution.appendLog(executionId, {
       type: 'error',
       agent: 'System',
-      message: 'Circular dependency detected in pipeline. Please check your connections.',
+      message: 'No starting node found (circular dependencies without entry point).',
     });
     await Execution.updateStatus(executionId, 'failed');
-    broadcastToExecution(executionId, { type: 'execution_failed', message: 'Circular dependency detected' });
+    broadcastToExecution(executionId, { type: 'execution_failed', message: 'No starting node found' });
     return;
   }
 
-  // Create node map for quick lookup
-  const nodeMap = {};
-  nodes.forEach(node => { nodeMap[node.id] = node; });
+  const builder = new StateGraph(GraphState);
 
-  // Execute agents in order
-  const agentOutputs = {};
-  let cumulativeContext = `User Input: ${JSON.stringify(inputData)}\n\n`;
-
-  broadcastToExecution(executionId, {
-    type: 'execution_started',
-    totalSteps: executionOrder.length,
-  });
-
-  await Execution.appendLog(executionId, {
-    type: 'info',
-    agent: 'System',
-    message: `Starting pipeline "${pipeline.name}" with ${executionOrder.length} agent(s)`,
-  });
-
-  for (let i = 0; i < executionOrder.length; i++) {
-    const nodeId = executionOrder[i];
-    const node = nodeMap[nodeId];
+  // Add nodes to the graph
+  for (const node of nodes) {
     const agentRole = node.data?.role || node.data?.label || 'Agent';
     const agentLabel = node.data?.label || agentRole;
     const agentConfig = node.data?.config || {};
 
-    // Find predecessor outputs
-    const predecessorEdges = edges.filter(e => e.target === nodeId);
-    const predecessorOutputs = predecessorEdges
-      .map(e => agentOutputs[e.source])
-      .filter(Boolean);
-
-    const agentInput = {
-      userInput: inputData,
-      previousOutputs: predecessorOutputs,
-      cumulativeContext,
-      config: agentConfig,
-    };
-
-    // Broadcast agent starting
-    broadcastToExecution(executionId, {
-      type: 'agent_started',
-      step: i + 1,
-      totalSteps: executionOrder.length,
-      agentId: nodeId,
-      agentRole,
-      agentLabel,
-    });
-
-    await Execution.appendLog(executionId, {
-      type: 'agent_start',
-      agent: agentLabel,
-      message: `Agent "${agentLabel}" (${agentRole}) started processing...`,
-    });
-
-    // Check for Human-in-the-loop approval BEFORE running the agent
-    if (agentConfig.requiresApproval) {
-      await Execution.updateStatus(executionId, 'awaiting_approval');
-      await Execution.appendLog(executionId, {
-        type: 'info',
-        agent: 'System',
-        message: `Pipeline paused. Awaiting human approval for agent "${agentLabel}".`,
-      });
+    const nodeFunction = async (state) => {
       broadcastToExecution(executionId, {
-        type: 'awaiting_approval',
-        agentId: nodeId,
+        type: 'agent_started',
+        step: state.stepCounter + 1,
+        totalSteps: nodes.length, // estimated
+        agentId: node.id,
         agentRole,
         agentLabel,
       });
 
-      try {
-        await new Promise((resolve, reject) => {
-          approvalPromises.set(executionId, { resolve, reject });
-        });
-        
-        await Execution.updateStatus(executionId, 'running');
+      await Execution.appendLog(executionId, {
+        type: 'agent_start',
+        agent: agentLabel,
+        message: `Agent "${agentLabel}" (${agentRole}) started processing...`,
+      });
+
+      // Human-in-the-loop approval logic
+      if (agentConfig.requiresApproval) {
+        await Execution.updateStatus(executionId, 'awaiting_approval');
         await Execution.appendLog(executionId, {
           type: 'info',
           agent: 'System',
-          message: `Approval granted. Resuming execution...`,
+          message: `Pipeline paused. Awaiting human approval for agent "${agentLabel}".`,
         });
-        broadcastToExecution(executionId, { type: 'approval_granted' });
-      } catch (err) {
-        await Execution.appendLog(executionId, {
-          type: 'error',
-          agent: 'System',
-          message: `Execution rejected by human.`,
+        
+        broadcastToExecution(executionId, {
+          type: 'awaiting_approval',
+          agentId: node.id,
+          agentRole,
+          agentLabel,
         });
-        await Execution.updateStatus(executionId, 'failed');
-        broadcastToExecution(executionId, { type: 'execution_failed', message: 'Rejected by human' });
-        return;
-      }
-    }
 
-    try {
-      // Simulate thinking delay for realism
+        try {
+          await new Promise((resolve, reject) => {
+            approvalPromises.set(executionId, { resolve, reject });
+          });
+          
+          await Execution.updateStatus(executionId, 'running');
+          await Execution.appendLog(executionId, {
+            type: 'info',
+            agent: 'System',
+            message: `Approval granted. Resuming execution...`,
+          });
+          broadcastToExecution(executionId, { type: 'approval_granted' });
+        } catch (err) {
+          throw new Error('Rejected by human');
+        }
+      }
+
+      // Simulate a small delay
       await delay(1500 + Math.random() * 2000);
 
+      const agentInput = {
+        userInput: state.inputData,
+        cumulativeContext: state.cumulativeContext,
+        config: agentConfig,
+      };
+
       const output = await runAgent(agentRole, agentInput);
-      agentOutputs[nodeId] = output;
-      cumulativeContext += `\n--- ${agentLabel} Output ---\n${output}\n`;
 
       await Execution.appendLog(executionId, {
         type: 'agent_complete',
         agent: agentLabel,
         message: `Agent "${agentLabel}" completed successfully.`,
-        output: output.substring(0, 500), // Truncate for log
+        output: output.substring(0, 500),
       });
 
       broadcastToExecution(executionId, {
         type: 'agent_completed',
-        step: i + 1,
-        agentId: nodeId,
+        step: state.stepCounter + 1,
+        agentId: node.id,
         agentRole,
         agentLabel,
         output,
       });
-    } catch (error) {
-      await Execution.appendLog(executionId, {
-        type: 'agent_error',
-        agent: agentLabel,
-        message: `Agent "${agentLabel}" failed: ${error.message}`,
-      });
 
-      broadcastToExecution(executionId, {
-        type: 'agent_failed',
-        agentId: nodeId,
-        agentRole,
-        error: error.message,
-      });
+      return {
+        agentOutputs: { [node.id]: output },
+        cumulativeContext: `--- ${agentLabel} Output ---\n${output}`,
+        stepCounter: 1
+      };
+    };
 
-      await Execution.updateStatus(executionId, 'failed');
-      broadcastToExecution(executionId, { type: 'execution_failed', message: error.message });
-      return;
-    }
+    builder.addNode(node.id, nodeFunction);
   }
 
-  // Get the final agent's output
-  const lastNodeId = executionOrder[executionOrder.length - 1];
-  const finalOutput = agentOutputs[lastNodeId] || 'No output generated.';
+  // Add edges to the graph
+  startNodes.forEach(node => builder.addEdge(START, node.id));
+  edges.forEach(edge => builder.addEdge(edge.source, edge.target));
+  endNodes.forEach(node => builder.addEdge(node.id, END));
 
-  await Execution.setOutput(executionId, finalOutput);
-  await Execution.updateStatus(executionId, 'completed');
+  const checkpointer = new MemorySaver();
+  const graph = builder.compile({ checkpointer });
+
+  broadcastToExecution(executionId, {
+    type: 'execution_started',
+    totalSteps: nodes.length,
+  });
 
   await Execution.appendLog(executionId, {
     type: 'info',
     agent: 'System',
-    message: 'Pipeline execution completed successfully! 🎉',
+    message: `Starting pipeline "${pipeline.name}" using LangGraph orchestration`,
   });
 
-  broadcastToExecution(executionId, {
-    type: 'execution_completed',
-    output: finalOutput,
-  });
-}
+  try {
+    const initialState = {
+      inputData,
+      cumulativeContext: `User Input: ${JSON.stringify(inputData)}\n\n`,
+      agentOutputs: {},
+      stepCounter: 0,
+    };
+    
+    // Config needs a thread_id for the MemorySaver to work properly
+    const config = { configurable: { thread_id: executionId } };
+    
+    const finalState = await graph.invoke(initialState, config);
+    
+    // Find the last agent output
+    const lastNodeId = endNodes[0]?.id; 
+    const finalOutput = finalState.agentOutputs[lastNodeId] || 'No output generated.';
 
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+    await Execution.setOutput(executionId, finalOutput);
+    await Execution.updateStatus(executionId, 'completed');
+
+    await Execution.appendLog(executionId, {
+      type: 'info',
+      agent: 'System',
+      message: 'Pipeline execution completed successfully! 🎉',
+    });
+
+    broadcastToExecution(executionId, {
+      type: 'execution_completed',
+      output: finalOutput,
+    });
+  } catch (error) {
+    console.error("LangGraph Execution Error:", error);
+    
+    await Execution.appendLog(executionId, {
+      type: 'error',
+      agent: 'System',
+      message: `Execution failed: ${error.message}`,
+    });
+
+    await Execution.updateStatus(executionId, 'failed');
+    broadcastToExecution(executionId, { type: 'execution_failed', message: error.message });
+  }
 }
