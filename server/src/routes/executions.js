@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import Execution from '../models/Execution.js';
 import Pipeline from '../models/Pipeline.js';
-import { executeWorkflow, approvalPromises } from '../services/engine.js';
+import { approvalPromises } from '../services/engine.js';
+import { executionQueue } from '../services/queue.js';
 
 const router = Router();
 router.use(authenticate);
@@ -58,10 +59,16 @@ router.post('/', async (req, res) => {
       inputData: inputData || {},
     });
 
-    // Start execution asynchronously
-    executeWorkflow(execution.id, pipeline, inputData || {}).catch(async err => {
-      console.error('Workflow execution error:', err);
-      await Execution.updateStatus(execution.id, 'failed');
+    // Start execution asynchronously by adding to Redis Queue
+    await executionQueue.add('execute-pipeline', {
+      executionId: execution.id,
+      pipelineId,
+      inputData: inputData || {},
+    }, {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 },
+      removeOnComplete: true,
+      removeOnFail: false
     });
 
     res.status(201).json({ execution });

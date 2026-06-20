@@ -12,6 +12,9 @@ import executionRoutes from './src/routes/executions.js';
 // Initialize database
 initializeDatabase();
 
+// Initialize Redis Queue & Worker
+import './src/services/queue.js';
+
 const app = express();
 const server = http.createServer(app);
 
