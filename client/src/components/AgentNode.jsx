@@ -3,6 +3,7 @@ import { Handle, Position } from '@xyflow/react';
 export default function AgentNode({ id, data, selected }) {
   const hasWebSearch = data.config?.enableWebSearch;
   const hasApproval = data.config?.requiresApproval;
+  const hasCodeInterpreter = data.config?.enableCodeInterpreter;
   const hasCustomPrompt = !!data.config?.systemPrompt;
 
   return (
@@ -25,9 +26,10 @@ export default function AgentNode({ id, data, selected }) {
             : 'Processing step in pipeline'}
         </div>
 
-        {(hasWebSearch || hasApproval) && (
+        {(hasWebSearch || hasApproval || hasCodeInterpreter) && (
           <div className="node-tags">
             {hasWebSearch && <span className="node-tag">🔍 Search</span>}
+            {hasCodeInterpreter && <span className="node-tag" style={{background: 'rgba(16, 185, 129, 0.15)', color: '#10b981'}}>⚙️ JS Code</span>}
             {hasApproval && <span className="node-tag warning">⏸ Approval</span>}
           </div>
         )}

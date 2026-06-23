@@ -132,6 +132,13 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
         userInput: state.inputData,
         cumulativeContext: state.cumulativeContext,
         config: agentConfig,
+        onToken: (token) => {
+          broadcastToExecution(executionId, {
+            type: 'agent_token',
+            step: state.stepCounter + 1,
+            token,
+          });
+        }
       };
 
       const output = await runAgent(agentRole, agentInput);

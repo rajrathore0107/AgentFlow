@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import config from '../config.js';
 import { searchWeb } from './tools/tavily.js';
+import { executeJavaScript } from './tools/codeInterpreter.js';
 
 // Initialize Gemini API
 const genAI = new GoogleGenerativeAI(config.geminiApiKey || 'mock-key-for-dev');
@@ -86,35 +87,39 @@ export async function runAgent(role, input) {
   const nodeConfig = input.config || {};
   const systemInstruction = nodeConfig.systemPrompt || agentDef.systemInstruction;
   const webSearchEnabled = nodeConfig.enableWebSearch !== false; // enabled by default unless explicitly disabled
+  const codeInterpreterEnabled = nodeConfig.enableCodeInterpreter === true;
 
   // Define available tools (conditionally enabled per-node config)
-  const tools = webSearchEnabled ? [
-    {
-      functionDeclarations: [
-        {
-          name: "search_web",
-          description: "Search the web for real-time information about a topic using the Tavily API. Use this when you need up-to-date facts, current events, or specific data not in your training.",
-          parameters: {
-            type: "OBJECT",
-            properties: {
-              query: {
-                type: "STRING",
-                description: "The search query to look up on the web"
-              }
-            },
-            required: ["query"]
-          }
-        }
-      ]
-    }
-  ] : [];
+  const tools = [];
+  
+  if (webSearchEnabled) {
+    tools.push({
+      functionDeclarations: [{
+        name: "search_web",
+        description: "Search the web for real-time information about a topic using the Tavily API. Use this when you need up-to-date facts, current events, or specific data not in your training.",
+        parameters: { type: "OBJECT", properties: { query: { type: "STRING", description: "The search query" } }, required: ["query"] }
+      }]
+    });
+  }
+
+  if (codeInterpreterEnabled) {
+    tools.push({
+      functionDeclarations: [{
+        name: "execute_javascript",
+        description: "Execute JavaScript code in a sandboxed environment. Use this to perform complex math, data manipulation, logic, or processing that requires deterministic code execution.",
+        parameters: { type: "OBJECT", properties: { code: { type: "STRING", description: "The JavaScript code to execute. Must be valid JS." } }, required: ["code"] }
+      }]
+    });
+  }
 
   // Determine the model — use per-node system instruction if provided
-  const model = genAI.getGenerativeModel({
+  const modelOptions = {
     model: 'gemini-2.5-flash',
     systemInstruction,
-    tools,
-  });
+  };
+  if (tools.length > 0) modelOptions.tools = tools;
+
+  const model = genAI.getGenerativeModel(modelOptions);
 
   const topic = extractTopic(input);
   
@@ -131,32 +136,58 @@ Based on your role's system instructions, process the above context and topic. P
 
   try {
     const chat = model.startChat();
-    let result = await chat.sendMessage(prompt);
     
-    // Handle potential tool calls (up to 3 iterations)
-    let callCount = 0;
-    while (result.response.functionCalls() && callCount < 3) {
-      const calls = result.response.functionCalls();
-      const call = calls[0]; // Process the first call
+    // Recursive function to handle streaming and potential tool calls
+    async function processStream(msgContent, callCount = 0) {
+      const result = await chat.sendMessageStream(msgContent);
+      let fullText = '';
       
-      if (call.name === "search_web") {
-        console.log(`🔍 Agent '${role}' is searching the web for: "${call.args.query}"`);
-        const searchResult = await searchWeb(call.args.query);
-        
-        // Send the tool response back to the model
-        result = await chat.sendMessage([{
-          functionResponse: {
-            name: "search_web",
-            response: { content: searchResult }
+      for await (const chunk of result.stream) {
+        const calls = chunk.functionCalls();
+        if (calls && calls.length > 0 && callCount < 3) {
+          const call = calls[0];
+          if (call.name === "search_web") {
+            console.log(`🔍 Agent '${role}' is searching the web for: "${call.args.query}"`);
+            const searchResult = await searchWeb(call.args.query);
+            return await processStream([{ functionResponse: { name: "search_web", response: { content: searchResult } } }], callCount + 1);
+          } else if (call.name === "execute_javascript") {
+            console.log(`⚙️ Agent '${role}' is executing code...`);
+            const execResult = await executeJavaScript(call.args.code);
+            return await processStream([{ functionResponse: { name: "execute_javascript", response: { content: execResult } } }], callCount + 1);
           }
-        }]);
-      } else {
-        break; // Unknown function call
+        } else {
+          try {
+            const chunkText = chunk.text();
+            if (chunkText) {
+              fullText += chunkText;
+              // Stream token back to engine via callback
+              if (input.onToken) input.onToken(chunkText);
+            }
+          } catch (e) {
+            // Ignore text() errors if chunk doesn't contain text
+          }
+        }
       }
-      callCount++;
+      
+      // Some models return the function call in the final aggregated response rather than mid-stream chunks
+      const responseCalls = await result.response;
+      if (responseCalls && responseCalls.functionCalls() && responseCalls.functionCalls().length > 0 && callCount < 3) {
+         const call = responseCalls.functionCalls()[0];
+         if (call.name === "search_web") {
+            console.log(`🔍 Agent '${role}' is searching the web for: "${call.args.query}"`);
+            const searchResult = await searchWeb(call.args.query);
+            return await processStream([{ functionResponse: { name: "search_web", response: { content: searchResult } } }], callCount + 1);
+         } else if (call.name === "execute_javascript") {
+            console.log(`⚙️ Agent '${role}' is executing code...`);
+            const execResult = await executeJavaScript(call.args.code);
+            return await processStream([{ functionResponse: { name: "execute_javascript", response: { content: execResult } } }], callCount + 1);
+         }
+      }
+
+      return fullText;
     }
 
-    return result.response.text();
+    return await processStream(prompt);
   } catch (error) {
     console.error(`Error running ${role} agent:`, error);
     throw new Error(`AI Generation failed for role ${role}: ${error.message}`);

@@ -91,10 +91,21 @@ export default function ExecutionView() {
           setCurrentStep(msg.step);
           setSteps(prev => {
             const next = [...prev];
-            next[msg.step - 1] = { ...msg, status: 'running' };
+            next[msg.step - 1] = { ...msg, status: 'running', output: '' };
             return next;
           });
           setLogs(prev => [...prev, { type: 'agent_start', agent: msg.agentLabel, message: `Agent "${msg.agentLabel}" started processing...`, timestamp: new Date().toISOString() }]);
+        }
+
+        if (msg.type === 'agent_token') {
+          setSteps(prev => {
+            const next = [...prev];
+            const idx = msg.step - 1;
+            if (next[idx]) {
+              next[idx] = { ...next[idx], output: (next[idx].output || '') + msg.token };
+            }
+            return next;
+          });
         }
 
         if (msg.type === 'agent_completed') {

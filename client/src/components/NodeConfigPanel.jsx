@@ -24,6 +24,7 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [enableWebSearch, setEnableWebSearch] = useState(false);
+  const [enableCodeInterpreter, setEnableCodeInterpreter] = useState(false);
 
   useEffect(() => {
     if (!selectedNode) return;
@@ -32,6 +33,7 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
     setSystemPrompt(selectedNode.data.config?.systemPrompt || DEFAULT_SYSTEM_PROMPTS[selectedNode.data.role || 'custom'] || '');
     setRequiresApproval(selectedNode.data.config?.requiresApproval || false);
     setEnableWebSearch(selectedNode.data.config?.enableWebSearch || false);
+    setEnableCodeInterpreter(selectedNode.data.config?.enableCodeInterpreter || false);
   }, [selectedNode]);
 
   const handleRoleChange = (newRole) => {
@@ -68,6 +70,7 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
             systemPrompt: systemPrompt !== DEFAULT_SYSTEM_PROMPTS[role] ? systemPrompt : undefined,
             requiresApproval,
             enableWebSearch,
+            enableCodeInterpreter,
           },
         },
       };
@@ -138,6 +141,16 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
               <span className="toggle-desc">Agent can search the web via Tavily</span>
             </div>
             <div className={`toggle-switch ${enableWebSearch ? 'on' : ''}`} onClick={() => setEnableWebSearch(v => !v)}>
+              <div className="toggle-thumb" />
+            </div>
+          </label>
+
+          <label className="toggle-row">
+            <div className="toggle-info">
+              <span className="toggle-label">⚙️ Code Interpreter</span>
+              <span className="toggle-desc">Agent can run sandboxed JavaScript</span>
+            </div>
+            <div className={`toggle-switch ${enableCodeInterpreter ? 'on' : ''}`} onClick={() => setEnableCodeInterpreter(v => !v)}>
               <div className="toggle-thumb" />
             </div>
           </label>
