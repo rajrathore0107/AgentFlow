@@ -103,4 +103,50 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// POST /api/pipelines/:id/schedule
+router.post('/:id/schedule', async (req, res) => {
+  try {
+    const pipeline = await Pipeline.findById(req.params.id);
+    if (!pipeline) return res.status(404).json({ error: 'Pipeline not found' });
+    if (pipeline.user_id !== req.userId) return res.status(403).json({ error: 'Access denied' });
+
+    const { cronExpression, inputData } = req.body;
+    if (!cronExpression) return res.status(400).json({ error: 'cronExpression is required' });
+
+    // Import from queue dynamically to avoid circular dep if needed, but top level is fine
+    const { schedulePipeline } = await import('../services/queue.js');
+    await schedulePipeline(req.params.id, req.userId, cronExpression, inputData || {});
+    
+    // We update pipeline status visually
+    await Pipeline.update(req.params.id, { status: 'scheduled' });
+
+    res.json({ message: 'Pipeline scheduled successfully', cron: cronExpression });
+  } catch (error) {
+    console.error('Error scheduling pipeline:', error);
+    res.status(500).json({ error: 'Failed to schedule pipeline' });
+  }
+});
+
+// DELETE /api/pipelines/:id/schedule
+router.delete('/:id/schedule', async (req, res) => {
+  try {
+    const pipeline = await Pipeline.findById(req.params.id);
+    if (!pipeline) return res.status(404).json({ error: 'Pipeline not found' });
+    if (pipeline.user_id !== req.userId) return res.status(403).json({ error: 'Access denied' });
+
+    const { unschedulePipeline } = await import('../services/queue.js');
+    const removed = await unschedulePipeline(req.params.id);
+    
+    if (removed) {
+      await Pipeline.update(req.params.id, { status: 'ready' });
+      res.json({ message: 'Pipeline schedule removed' });
+    } else {
+      res.status(404).json({ error: 'No active schedule found for pipeline' });
+    }
+  } catch (error) {
+    console.error('Error unscheduling pipeline:', error);
+    res.status(500).json({ error: 'Failed to unschedule pipeline' });
+  }
+});
+
 export default router;
