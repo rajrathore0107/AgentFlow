@@ -3,6 +3,8 @@ import Execution from '../models/Execution.js';
 import { runAgent } from './agentRunner.js';
 import { broadcastToExecution } from '../websocket/handler.js';
 
+import { saveExecutionToMemory } from './memory.js';
+
 export const approvalPromises = new Map();
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -207,6 +209,10 @@ export async function executeWorkflow(executionId, pipeline, inputData) {
 
     await Execution.setOutput(executionId, finalOutput);
     await Execution.updateStatus(executionId, 'completed');
+    
+    // Save to Vector Memory!
+    const topic = inputData?.topic || inputData?.query || 'General Topic';
+    await saveExecutionToMemory(pipeline.name, topic, finalOutput).catch(err => console.error("Memory Save Error:", err));
 
     await Execution.appendLog(executionId, {
       type: 'info',

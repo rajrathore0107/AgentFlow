@@ -4,6 +4,7 @@ export default function AgentNode({ id, data, selected }) {
   const hasWebSearch = data.config?.enableWebSearch;
   const hasApproval = data.config?.requiresApproval;
   const hasCodeInterpreter = data.config?.enableCodeInterpreter;
+  const hasMemory = data.config?.enableMemory;
   const hasCustomPrompt = !!data.config?.systemPrompt;
 
   return (
@@ -26,10 +27,11 @@ export default function AgentNode({ id, data, selected }) {
             : 'Processing step in pipeline'}
         </div>
 
-        {(hasWebSearch || hasApproval || hasCodeInterpreter) && (
+        {(hasWebSearch || hasApproval || hasCodeInterpreter || hasMemory) && (
           <div className="node-tags">
             {hasWebSearch && <span className="node-tag">🔍 Search</span>}
             {hasCodeInterpreter && <span className="node-tag" style={{background: 'rgba(16, 185, 129, 0.15)', color: '#10b981'}}>⚙️ JS Code</span>}
+            {hasMemory && <span className="node-tag" style={{background: 'rgba(236, 72, 153, 0.15)', color: '#ec4899'}}>🧠 Memory</span>}
             {hasApproval && <span className="node-tag warning">⏸ Approval</span>}
           </div>
         )}

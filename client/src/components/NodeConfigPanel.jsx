@@ -25,6 +25,7 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [enableWebSearch, setEnableWebSearch] = useState(false);
   const [enableCodeInterpreter, setEnableCodeInterpreter] = useState(false);
+  const [enableMemory, setEnableMemory] = useState(false);
 
   useEffect(() => {
     if (!selectedNode) return;
@@ -34,6 +35,7 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
     setRequiresApproval(selectedNode.data.config?.requiresApproval || false);
     setEnableWebSearch(selectedNode.data.config?.enableWebSearch || false);
     setEnableCodeInterpreter(selectedNode.data.config?.enableCodeInterpreter || false);
+    setEnableMemory(selectedNode.data.config?.enableMemory || false);
   }, [selectedNode]);
 
   const handleRoleChange = (newRole) => {
@@ -71,6 +73,7 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
             requiresApproval,
             enableWebSearch,
             enableCodeInterpreter,
+            enableMemory,
           },
         },
       };
@@ -151,6 +154,16 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
               <span className="toggle-desc">Agent can run sandboxed JavaScript</span>
             </div>
             <div className={`toggle-switch ${enableCodeInterpreter ? 'on' : ''}`} onClick={() => setEnableCodeInterpreter(v => !v)}>
+              <div className="toggle-thumb" />
+            </div>
+          </label>
+
+          <label className="toggle-row">
+            <div className="toggle-info">
+              <span className="toggle-label">🧠 Persistent Memory</span>
+              <span className="toggle-desc">Agent can search past execution records</span>
+            </div>
+            <div className={`toggle-switch ${enableMemory ? 'on' : ''}`} onClick={() => setEnableMemory(v => !v)}>
               <div className="toggle-thumb" />
             </div>
           </label>

@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import config from '../config.js';
 import { searchWeb } from './tools/tavily.js';
 import { executeJavaScript } from './tools/codeInterpreter.js';
+import { searchPastMemory } from './memory.js';
 
 // Initialize Gemini API
 const genAI = new GoogleGenerativeAI(config.geminiApiKey || 'mock-key-for-dev');
@@ -88,6 +89,7 @@ export async function runAgent(role, input) {
   const systemInstruction = nodeConfig.systemPrompt || agentDef.systemInstruction;
   const webSearchEnabled = nodeConfig.enableWebSearch !== false; // enabled by default unless explicitly disabled
   const codeInterpreterEnabled = nodeConfig.enableCodeInterpreter === true;
+  const memoryEnabled = nodeConfig.enableMemory === true;
 
   // Define available tools (conditionally enabled per-node config)
   const tools = [];
@@ -108,6 +110,16 @@ export async function runAgent(role, input) {
         name: "execute_javascript",
         description: "Execute JavaScript code in a sandboxed environment. Use this to perform complex math, data manipulation, logic, or processing that requires deterministic code execution.",
         parameters: { type: "OBJECT", properties: { code: { type: "STRING", description: "The JavaScript code to execute. Must be valid JS." } }, required: ["code"] }
+      }]
+    });
+  }
+
+  if (memoryEnabled) {
+    tools.push({
+      functionDeclarations: [{
+        name: "search_past_memory",
+        description: "Search the platform's vector database of past pipeline execution outputs. Use this to remember facts, retrieve previous research, or maintain context across different pipeline runs.",
+        parameters: { type: "OBJECT", properties: { query: { type: "STRING", description: "The search query to look up in the vector store" } }, required: ["query"] }
       }]
     });
   }
@@ -154,6 +166,10 @@ Based on your role's system instructions, process the above context and topic. P
             console.log(`⚙️ Agent '${role}' is executing code...`);
             const execResult = await executeJavaScript(call.args.code);
             return await processStream([{ functionResponse: { name: "execute_javascript", response: { content: execResult } } }], callCount + 1);
+          } else if (call.name === "search_past_memory") {
+            console.log(`🧠 Agent '${role}' is recalling memory for: "${call.args.query}"`);
+            const memoryResult = await searchPastMemory(call.args.query);
+            return await processStream([{ functionResponse: { name: "search_past_memory", response: { content: memoryResult } } }], callCount + 1);
           }
         } else {
           try {
@@ -181,6 +197,10 @@ Based on your role's system instructions, process the above context and topic. P
             console.log(`⚙️ Agent '${role}' is executing code...`);
             const execResult = await executeJavaScript(call.args.code);
             return await processStream([{ functionResponse: { name: "execute_javascript", response: { content: execResult } } }], callCount + 1);
+         } else if (call.name === "search_past_memory") {
+            console.log(`🧠 Agent '${role}' is recalling memory for: "${call.args.query}"`);
+            const memoryResult = await searchPastMemory(call.args.query);
+            return await processStream([{ functionResponse: { name: "search_past_memory", response: { content: memoryResult } } }], callCount + 1);
          }
       }
 
