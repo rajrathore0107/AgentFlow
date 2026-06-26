@@ -26,6 +26,7 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
   const [enableWebSearch, setEnableWebSearch] = useState(false);
   const [enableCodeInterpreter, setEnableCodeInterpreter] = useState(false);
   const [enableMemory, setEnableMemory] = useState(false);
+  const [model, setModel] = useState('gemini-2.5-flash');
 
   useEffect(() => {
     if (!selectedNode) return;
@@ -36,6 +37,7 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
     setEnableWebSearch(selectedNode.data.config?.enableWebSearch || false);
     setEnableCodeInterpreter(selectedNode.data.config?.enableCodeInterpreter || false);
     setEnableMemory(selectedNode.data.config?.enableMemory || false);
+    setModel(selectedNode.data.config?.model || 'gemini-2.5-flash');
   }, [selectedNode]);
 
   const handleRoleChange = (newRole) => {
@@ -74,6 +76,7 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
             enableWebSearch,
             enableCodeInterpreter,
             enableMemory,
+            model,
           },
         },
       };
@@ -135,6 +138,19 @@ export default function NodeConfigPanel({ selectedNode, onClose }) {
           <span className="form-error" style={{ color: 'var(--text-muted)', fontSize: 11 }}>
             Customizes how this agent thinks and responds
           </span>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">LLM Model</label>
+          <select 
+            className="form-input" 
+            value={model} 
+            onChange={e => setModel(e.target.value)}
+          >
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fast & Cheap)</option>
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Deep Reasoning)</option>
+            <option value="gemini-2.5-flash-8b">Gemini 2.5 Flash-8B (High Volume)</option>
+          </select>
         </div>
 
         <div className="node-config-toggles">

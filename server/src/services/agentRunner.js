@@ -126,7 +126,7 @@ export async function runAgent(role, input) {
 
   // Determine the model — use per-node system instruction if provided
   const modelOptions = {
-    model: 'gemini-2.5-flash',
+    model: nodeConfig.model || 'gemini-2.5-flash',
     systemInstruction,
   };
   if (tools.length > 0) modelOptions.tools = tools;
