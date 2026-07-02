@@ -17,7 +17,7 @@ export function initializeDatabase() {
     console.log('🔌 Connecting to PostgreSQL database...');
     pgPool = new pg.Pool({
       connectionString,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
     });
     dbType = 'postgres';
   } else {
